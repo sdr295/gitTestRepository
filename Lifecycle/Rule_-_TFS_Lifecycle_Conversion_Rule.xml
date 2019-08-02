@@ -1,0 +1,27 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE Rule PUBLIC "sailpoint.dtd" "sailpoint.dtd">
+<Rule created="" id="" language="beanshell" modified="" name="TFS Lifecycle Event Conversion Rule" type="IdentityTrigger">
+<Description>Based on personnelStatus change</Description>
+<Signature returnType="boolean"/>
+<ReferencedRules>
+	<Reference class="sailpoint.object.Rule" name="TFS - Account Management Rules Library" />
+</ReferencedRules>
+<Source>
+<![CDATA[
+	import org.apache.log4j.Logger;
+
+	try {
+		if(!"C".equals( newIdentity.getAttribute("processLifecycle") )) return false;
+
+		if(!hiredTodayOrEarlier(newIdentity) ) return false;
+
+	} catch (Exception e) {
+		Logger tfsLogger = Logger.getLogger("TFS.rule.LCE.Conversion");
+		tfsLogger.error("ERROR parsing hireDate - " + newHireDateStr + " for identity " + newIdentity.getName(), e);
+		return false;
+	}
+
+	return true;
+]]>
+</Source>
+</Rule>

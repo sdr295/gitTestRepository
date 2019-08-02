@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE Rule PUBLIC "sailpoint.dtd" "sailpoint.dtd">
+<Rule  language="beanshell"  name="TFS Lifecycle Event Active Rule" type="IdentityTrigger">
+  <Description>The previousIdentity and newIdentity hold snapshots of the identity before the update has occurred and the state of the identity after the update, respectively.</Description>
+  <Signature returnType="boolean"/>
+  <Source>
+  <![CDATA[
+  	return ("A".equals( newIdentity.getAttribute("processLifecycle") ));
+  ]]>
+</Source>
+</Rule>

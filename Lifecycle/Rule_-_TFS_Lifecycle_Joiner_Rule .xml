@@ -1,0 +1,27 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE Rule PUBLIC "sailpoint.dtd" "sailpoint.dtd">
+<Rule  language="beanshell"  name="TFS Lifecycle Event Joiner Rule" type="IdentityTrigger">
+<Description>This rule can be used for Certification Events that use rule triggers. The previousIdentity and newIdentity hold snapshots of the identity before the update has occurred and the state of the identity after the update, respectively.</Description>
+<Signature returnType="boolean"/>
+<ReferencedRules>
+	<Reference class="sailpoint.object.Rule" name="TFS - Account Management Rules Library" />
+</ReferencedRules>
+<Source>
+<![CDATA[
+	import org.apache.log4j.Logger;
+
+	try {
+		if(null==previousIdentity || void==previousIdentity) return true;
+
+		if("J".equals( newIdentity.getAttribute("processLifecycle") )) return true;
+	}
+	catch (Exception e) {
+		Logger tfsLogger = Logger.getLogger("TFS.rule.LCE.Joiner");
+		tfsLogger.error("ERROR parsing hireDate - " + newHireDateStr + " for identity " + newIdentity.getName(), e);
+		return false;
+	}
+
+	return false;
+]]>
+</Source>
+</Rule>

@@ -1,0 +1,32 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE Rule PUBLIC "sailpoint.dtd" "sailpoint.dtd">
+<Rule  language="beanshell"  name="TFS Lifecycle Event Rehire Rule" type="IdentityTrigger">
+<Description>This rule can be used for Certification Events that use rule triggers. The previousIdentity and newIdentity hold snapshots of the identity before the update has occurred and the state of the identity after the update, respectively.</Description>
+<Signature returnType="boolean"/>
+<ReferencedRules>
+	<Reference class="sailpoint.object.Rule" name="TFS - Account Management Rules Library" />
+</ReferencedRules>
+<Source>
+<![CDATA[
+  	import org.apache.log4j.Logger;
+
+	try {
+		if(!"R".equals( newIdentity.getAttribute("processLifecycle") )) return false;
+
+		if(previousIdentity.getAttribute("emergencyTerminate")!=null || newIdentity.getAttribute("emergencyTerminate")!=null) return false;
+
+		if(!hiredTodayOrEarlier(newIdentity) ) return false;
+
+		List skipList = Arrays.asList("408622", "182718", "182715", "153816", "141667", "156793","174613","177132","177915","179688","181222","115898");
+		if( skipList.contains( previousIdentity.getAttribute("employeeID") ) ) return false;
+
+	} catch (Exception e) {
+		Logger tfsLogger = Logger.getLogger("TFS.rule.LCE.Joiner");
+		tfsLogger.error("ERROR parsing hireDate - " + newHireDateStr + " for identity " + newIdentity.getName(), e);
+		return false;
+	}
+
+	return true;
+]]>
+</Source>
+</Rule>

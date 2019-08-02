@@ -1,0 +1,243 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE Rule PUBLIC "sailpoint.dtd" "sailpoint.dtd">
+<Rule name="PG - Common Rules Library" language="beanshell">
+  <Source>
+    <![CDATA[
+    import sailpoint.api.SailPointFactory;
+    import sailpoint.api.SailPointContext;
+	import sailpoint.connector.*;
+    import sailpoint.object.*;
+    import sailpoint.tools.*;
+    import sailpoint.web.messages.MessageKeys;
+    import java.util.*;
+    import java.text.*;
+    import org.apache.commons.logging.Log;
+    import org.apache.commons.logging.LogFactory;
+	import sailpoint.tools.GeneralException;
+	import sailpoint.tools.CloseableIterator;
+	import sailpoint.tools.GeneralException;
+
+    private static Log logger = LogFactory.getLog("rule.PG.Common.RulesLibrary");
+
+   	//--------------------------------------------------------------------------------------
+	// Method to log into audit event objects.
+	// format:
+	// action => The workflow Type (example: "ChangePassword")
+	// source => corresponds to who kicked off the process (example: "Identity")
+	// instance => Approval Step in Workflow (example: "Requestor Confirmation, Identity Approval")
+	// target => corresponds to the object on which the event happened (most likely the Identity being created...)
+	// value1...4 => corresponds to the audit information
+	//--------------------------------------------------------------------------------------
+	//
+	public void logToAudit(String action, String source, String instance, String target, String value1, String value2, String value3, String value4) {
+		AuditEvent e = new AuditEvent();
+		e.setApplication("IIQ");
+		// Limit fields length to be stored
+		//----------------------------------
+		if (action != null && action.length() > 128)
+			e.setAction(action.substring(0, 127));
+		else
+			e.setAction(action);
+
+		if (source != null && source.length() > 128)
+			e.setSource(source.substring(0, 127));
+		else
+			e.setSource(source);
+
+		if (instance != null && instance.length() > 128)
+			e.setInstance(instance.substring(0, 127));
+		else
+			e.setInstance(instance);
+
+		if (target != null && target.length() > 255)
+			e.setTarget(target.substring(0, 254));
+		else
+			e.setTarget(target);
+
+		if (value1 != null && value1.length() > 255)
+			e.setString1(value1.substring(0, 254));
+		else
+			e.setString1(value1);
+
+		if (value2 != null && value2.length() > 255)
+			e.setString2(value2.substring(0, 254));
+		else
+			e.setString2(value2);
+
+		if (value3 != null && value3.length() > 255)
+			e.setString3(value3.substring(0, 254));
+		else
+			e.setString3(value3);
+
+		if (value4 != null && value4.length() > 255)
+			e.setString4(value4.substring(0, 254));
+		else
+			e.setString4(value4);
+
+		context.saveObject(e);
+		context.commitTransaction();
+		context.decache(e);
+	}
+	public Boolean isEmailUnique( String email ) {
+		logger.trace("Enter isEmailUnique");
+
+		String errorMessage = "";
+		String applicationName = "%%ED_APPLICATION_NAME%%";
+		String filterString = "%%ED_APPLICATION_MAIL_SEARCH_ATTRIBUTE%%";
+		String searchDN = "%%ED_APPLICATION_MAIL_SEARCH_DN%%";
+		Boolean foundEmail = false;
+
+		Application appObject = context.getObjectByName(Application.class, applicationName);
+		Application appCopy = (Application)appObject.deepCopy(context);
+		appCopy.setAttribute("searchDN", searchDN);
+
+		String appConnName = appCopy.getConnector();
+		logger.debug("Application " + applicationName + " uses connector " + appConnName);
+
+		Connector appConnector = sailpoint.connector.ConnectorFactory.getConnector(appCopy, null);
+
+		if (null == appConnector) {
+			errorMessage = "Failed to construct an instance of connector [" + appConnName + "]";
+			throw new GeneralException(errorMessage);
+		}
+
+		logger.debug("Connector instantiated, calling iterateObjects() to check for existing email...");
+
+		Filter filter = Filter.eq(filterString, email);
+		CloseableIterator iterator = appConnector.iterateObjects(Connector.TYPE_ACCOUNT, filter, null);
+
+		try {
+			if (iterator != null && iterator.hasNext()) {
+				logger.debug("Found a user with that email!");
+				ResourceObject user = iterator.next();
+				logger.debug("User returned: " + user.toXml());
+				foundEmail = true;
+			}
+		} finally {
+			if (iterator != null)
+				iterator.close();
+		}
+
+
+		logger.trace("Exit isEmailUnique");
+		return foundEmail;
+	}
+
+   	//--------------------------------------------------------------------------------------
+	// Method to Check If Work Item is Expired or Not
+	// -------------------------------------------------------------------------------------
+	//
+	public static boolean isWorkItemExpired(Workflow workflow,WorkItem item)
+{
+	logger.trace("Enter isWorkItemExpired");
+	boolean workItemExpired=false;
+	logger.trace("item->state"+item.getState());
+	if(item.getState()!=null && item.getState().equals(WorkItem.State.Expired))
+	{
+	workItemExpired=true;
+	}
+	logger.trace("Exit isWorkItemExpired "+workItemExpired);
+	workflow.put("workItemExpired", workItemExpired);
+	return workItemExpired ;
+
+}
+
+	public static List buildEmailArgsList(Workflow workflow) {
+
+      List emailArgsList = new ArrayList();
+
+      Boolean completeSuccess = true;
+
+      ProvisioningProject project = workflow.get("project");
+
+      for(ProvisioningPlan plan : project.getPlans()) {
+        for(AccountRequest acctReq:plan.getAccountRequests()) {
+          Map emailArgs = new HashMap();
+          emailArgs.put("op", acctReq.getOperation());
+          emailArgs.put("accountName", acctReq.getNativeIdentity());
+          emailArgs.put("nativeId", acctReq.getNativeIdentity());
+          emailArgs.put("acctReq", acctReq);
+          emailArgs.put("status", "SUCCESS");
+          emailArgs.put("applicationHTML", "");
+          emailArgs.put("appName", acctReq.getApplication());
+
+          // We are getting the status of the account request to see if it was committed or not.
+          // If the account request was not committed, we will consider the request to have failed.
+          // In some cases, the entire plan will fail, and the status will not even exist at the account request level.
+          // The status will be added to the provisioning plan only. Thus, if the status does not exist at the account request level
+          // we will consider it FAILED.
+
+          // Adding null checks for getStatus()
+
+          if((acctReq.getResult() != null && acctReq.getResult().getStatus() != null && ProvisioningResult.STATUS_COMMITTED.equals(acctReq.getResult().getStatus())) || acctReq.getApplication().equalsIgnoreCase(ProvisioningPlan.APP_IIQ)) {
+            for(ApprovalItem approvalItem:approvalSet.getItems()) {
+              String itemApp = approvalItem.getApplication();
+              String itemIdentity = approvalItem.getNativeIdentity();
+              if(itemApp.equals(acctReq.getApplication()) && itemIdentity.equals(acctReq.getNativeIdentity())) {
+                emailArgs.put("approvalItem", approvalItem);
+                break;
+              }
+            }
+          }
+          else {
+            emailArgs.put("status", "FAILED");
+            completeSuccess = false;
+          }
+
+          emailArgsList.add(emailArgs);
+        }
+      }
+
+      if (completeSuccess) {
+        IdentityRequest identReq = context.getObjectByName(IdentityRequest.class, workflow.get("identityRequestId"));
+
+        if (identReq != null) {
+          // the identity request is still in "executing" state, so we can't get the end date. let's just get the last modified for now
+          workflow.put("completionDate", identReq.getModified());
+        }
+        else {
+          workflow.put("completionDate", new Date());
+        }
+      }
+
+      workflow.put("completeSuccess", completeSuccess);
+
+      return emailArgsList;
+    }
+
+    public static String determineEmail(SailPointContext context, Workflow workflow) {
+
+      String identityName = workflow.get("identityName");
+      String emailTo = null;
+
+      Identity identity = context.getObjectByName(Identity.class, identityName);
+
+      if (identity.getAttribute("email") != null) {
+        emailTo = identity.getAttribute("email");
+      }
+      return emailTo;
+    }
+
+    public String getEnvironment() throws GeneralException {
+		Custom environmentCustom = context.getObject(Custom.class, "PG - Environment");
+		if (environmentCustom != null) {
+			// For index map:
+			// Key - search string
+			// Value - building id
+			HashMap environmentMap = environmentCustom.getAttributes();
+			if (environmentMap != null) {
+				return (String)environmentMap.get("environment");
+			}
+		}
+		return null;
+	}
+
+	// this is in here because the provisioning rules library cannot be validated if using tokens
+	public String getADUserPrincipalName(String shortname) {
+		String suffix = "%%AD_USERPRINCIPALNAME_SUFFIX%%";
+		return shortname + suffix;
+	}
+
+    ]]>
+  </Source>
+</Rule>
