@@ -1,0 +1,227 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE Rule PUBLIC "sailpoint.dtd" "sailpoint.dtd">
+<Rule name="PG - Access Review Rules Library" language="beanshell">
+	
+	<Source>
+	<![CDATA[
+	import java.util.ArrayList;
+	import java.util.Calendar;
+	import java.util.Date;
+	import java.util.HashMap;
+	import java.util.List;
+	
+	import sailpoint.api.RequestManager;
+	import sailpoint.api.SailPointContext;
+	import sailpoint.object.Attributes;
+	import sailpoint.object.Certification;
+	import sailpoint.object.CertificationAction;
+	import sailpoint.object.CertificationEntity;
+	import sailpoint.object.CertificationItem;
+	import sailpoint.object.Link;
+	import sailpoint.object.ProvisioningPlan;
+	import sailpoint.object.Identity;
+	import sailpoint.object.ProvisioningPlan.Operation;
+	import sailpoint.object.Request;
+	import sailpoint.object.Workflow;
+	import sailpoint.tools.GeneralException;
+	import sailpoint.object.RequestDefinition;
+	
+	import org.apache.commons.logging.Log;
+	import org.apache.commons.logging.LogFactory;
+	
+	private static Log logger = LogFactory.getLog("PG.Access.Review.RulesLibrary");
+	/** 
+	 * Method: buildAccessReviewIdentityExpirationPlan(String identityName)
+	 * This method builds provisioning plan to extend the expiration date of employee types EBP and Non-Emp.
+	 * 
+	 * @param context
+	 * @param identityName
+	 * @return Provisioning Plan
+	 * @throws GeneralException
+	 */
+	public static ProvisioningPlan buildAccessReviewIdentityExpirationPlan(String identityName)  throws GeneralException
+	{
+		logger.debug("Enter buildAccessReviewIdentityExpirationPlan");
+		sailpoint.object.ProvisioningPlan.AccountRequest.Operation operation = null;
+		operation = sailpoint.object.ProvisioningPlan.AccountRequest.Operation.valueOf("Modify");
+		
+		ProvisioningPlan plan = new ProvisioningPlan();
+		Identity identity = context.getObjectByName(Identity.class, identityName);
+		String empType = (String) identity.getAttribute("employeeType");
+		if (null != identity && null!=empType && (empType.equalsIgnoreCase("Non-Emp")||empType.equalsIgnoreCase("EBP"))) 
+		{
+				List links = identity.getLinks();
+				if ((null != links) && !links.isEmpty() ) 
+				{
+					for (Link link:links)
+					{
+						if(link.getApplicationName()!=null && link.getApplicationName().equalsIgnoreCase("Enterprise Directory"))
+						{
+							plan = new ProvisioningPlan();
+							plan.setIdentity(identity);
+							sailpoint.object.ProvisioningPlan.AccountRequest acctReq = new sailpoint.object.ProvisioningPlan.AccountRequest();
+							acctReq.setApplication("IdentityIQ");
+							acctReq.setOperation(operation);
+							Calendar c = Calendar.getInstance();
+							if(empType.equalsIgnoreCase("Non-Emp"))
+							{
+								//Add one year for Non-Emp
+								c.add(Calendar.MONTH, 6);
+							}
+							else
+							{
+								//Add six months for EBP
+								c.add(Calendar.YEAR, 1);
+							}
+							Date expirationDate = c.getTime();
+							sailpoint.object.ProvisioningPlan.AttributeRequest attrReq = new sailpoint.object.ProvisioningPlan.AttributeRequest();
+							attrReq.setName("expire");
+							attrReq.setValue(expirationDate);
+							attrReq.setOperation(Operation.Set);
+							//Add Attribute Request to Account Request
+							acctReq.add(attrReq);
+							//Add Account Request to plan
+							plan.add(acctReq);
+						}// End If link application name is Enterprise Directory
+					}
+			
+				}
+			}
+		if(plan!=null && plan.getAccountRequests()!=null)
+		{
+		logger.debug("End buildAccessReviewIdentityExpirationPlan "+plan.toXml());
+		return plan;
+		}
+		else
+		{
+		logger.debug("End buildAccessReviewIdentityExpirationPlan "+plan);
+		return null;
+		}
+	}
+	
+	/**
+	* Method: provisionIdentityExpiration(String identityName)
+	 * @param identityName
+	 * @throws GeneralException
+	* This method launches request manager workflow "LCM Provisioning"
+	* The workflow provisions the expiration date to Enterprise Directory.
+	**/
+   public static void provisionIdentityExpiration(String identityName) throws GeneralException
+   {
+   	    logger.debug("Start provisionIdentityExpiration");
+   	    ProvisioningPlan plan= buildAccessReviewIdentityExpirationPlan(identityName);
+   	    if(plan!=null && plan.getAccountRequests()!=null)
+   	    {
+	   	    
+			//Workflow launchArguments
+			HashMap launchArgsMap = new HashMap();
+			launchArgsMap.put("identityName",identityName);
+			launchArgsMap.put("identityDisplayName",identityName);
+			launchArgsMap.put("launcher","spadmin");
+			launchArgsMap.put("optimisticProvisioning","false");
+			launchArgsMap.put("sessionOwner","spadmin");
+			launchArgsMap.put("flow","AccountsRequest");
+			launchArgsMap.put("notificationScheme","none");
+			launchArgsMap.put("approvalScheme", "none");
+			launchArgsMap.put("fallbackApprover","spadmin");
+			launchArgsMap.put("plan", plan);
+			launchArgsMap.put("foregroundProvisioning", "true");
+			logger.debug("Start Request Manager Provisioning");
+			String workflowName="LCM Provisioning";
+			Workflow wf = (Workflow) context.getObjectByName(Workflow.class, workflowName);
+			logger.debug("Workflow name: " + workflowName);
+			// Use the Request Launcher
+			Request req = new Request();
+			RequestDefinition reqdef = context.getObject( RequestDefinition.class, "Workflow Request" );
+			logger.debug("Request Definition: " + reqdef);
+			req.setDefinition( reqdef );
+			Attributes allArgs = new Attributes();
+			allArgs.put( "workflow",    wf.getId() );
+	
+			// Start 5 seconds from now. 
+			long current = System.currentTimeMillis();
+			current += 5 * 1000;
+			String requestName = "Certification Provisioning Event For " + identityName;
+			allArgs.put( "requestName", requestName );
+			allArgs.putAll( launchArgsMap );
+	
+			req.setEventDate( new Date( current ) );
+			Identity id = context.getObjectByName(Identity.class, "spadmin");
+			req.setOwner(id);
+			req.setName(requestName);
+			req.setAttributes( reqdef, allArgs );
+			// Launch the work flow via the request manager. Daemon thread will pick this up. 
+			RequestManager.addRequest(context, req);
+   	    }
+		logger.debug("End provisionIdentityExpiration");
+   }
+   
+ /**
+ * signOffRule(Certification certification)
+ * Kick off provisioning of  expiration date for Non-Emp and EBP
+ * This rule is kicked off during certification end phase rule
+ * @param certification
+ * @throws GeneralException
+ */
+
+	public static void signOffRule(Certification certification) throws GeneralException
+	{
+		logger.debug("Enter signOffRule");
+		List approvedList =  new ArrayList();
+		if(certification != null)
+		{
+		    //Lets get all the entities first. Each Identity is equivalent to one identity
+			List entityList = certification.getEntities();
+			if(entityList != null && entityList.size() > 0)
+			{
+				for(CertificationEntity entity : entityList)
+				{		
+					List itemList = entity.getItems();
+					if(itemList != null && itemList.size() > 0)
+					{
+					    //Each Identity could have accounts on different resources
+						for(CertificationItem item : itemList)
+						{	
+							List applicationNames = new ArrayList();
+			                //Get the application name from certification item
+							applicationNames = item.getApplicationNames();
+			                String applicationName = (String) applicationNames.get(0);
+							 //Get the Identity from certification item
+			                String identityName=item.getIdentity();
+		                		CertificationAction certAction = item.getAction();
+							if(certAction !=null && certAction.getStatus() != null && applicationName!=null && applicationName.equalsIgnoreCase("Enterprise Directory"))
+							{
+								logger.debug("certAction.getStatus() ->"+certAction.getStatus());
+								
+								if((certAction.getStatus()).equals(CertificationAction.Status.Approved))
+								{
+								   if(identityName!=null)
+								   {
+									approvedList.add(identityName); 
+									} 
+								}//End If Certification Action Approved
+							}//End If Certification Action Status Not Null and Application Name is Enterprise Directory
+						}// End For Loop for Certification Item
+					}// End If itemList null check
+				}//End For Loop for Certification Entity
+			}//End If entityList null check
+		}//End certification null check
+		logger.debug("approvedList ->"+approvedList);
+		if(approvedList!=null && approvedList.size()>0)
+		{
+			for (String identityStr:approvedList)
+			{
+			 //Launch a workflow that would provision to Enterprise Directory Account
+			 //This worlflow will be picked up by the Request Manager
+				if(identityStr!=null)
+				{
+					provisionIdentityExpiration(identityStr);
+				}
+			}//End For Loop
+		}//End If approvedList null check
+		logger.debug("End signOffRule");
+		logger.debug("Returning result null from Sign Off Approver rule");
+	}
+	]]>
+	</Source>
+</Rule>
