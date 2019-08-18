@@ -1,6 +1,8 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <!DOCTYPE Rule PUBLIC "sailpoint.dtd" "sailpoint.dtd">
 <Rule name="PG - Access Review Rules Library" language="beanshell">
+-- changes to the xml file 
+this should cause merge issues
 	
 	<Source>
 	<![CDATA[
@@ -9,7 +11,7 @@
 	import java.util.Date;
 	import java.util.HashMap;
 	import java.util.List;
-	
+
 	import sailpoint.api.RequestManager;
 	import sailpoint.api.SailPointContext;
 	import sailpoint.object.Attributes;
